@@ -83,6 +83,9 @@ use IPD_driver,         only: IPD_initialize, IPD_setup_step, &
                               IPD_radiation_step,             &
                               IPD_physics_step1,              &
                               IPD_physics_step2, IPD_physics_end
+
+use coupler_types_mod, only : coupler_2d_bc_type
+
 #ifdef STOCHY
 use stochastic_physics, only: init_stochastic_physics,         &
                               run_stochastic_physics
@@ -108,12 +111,34 @@ use cosp2_test,         only: cosp2_offline
 implicit none
 private
 
-public update_atmos_radiation_physics
+public update_atmos_model_radiation
 public update_atmos_model_state
 public update_atmos_model_dynamics
 public atmos_model_init, atmos_model_end, atmos_data_type
 public atmos_model_restart
+public land_ice_atmos_boundary_type
+public update_atmos_model_up, update_atmos_model_down, lnd_ice_atm_bnd_type_chksum
+public atmos_data_type_chksum, lnd_atm_bnd_type_chksum, ice_atm_bnd_type_chksum
+public atm_stock_pe
 !-----------------------------------------------------------------------
+
+!FROM AM4/src/atmos_phys/atmos_param/vert_diff/vert_diff.F90
+type surf_diff_type
+
+  real, pointer, dimension(:,:) :: dtmass  => NULL(),   &
+                                   dflux_t => NULL(),   &
+                                   delta_t => NULL(),   &
+                                   delta_u => NULL(),   &
+                                   delta_v => NULL()
+  real, pointer, dimension(:,:,:) :: tdt_dyn => NULL(), &
+                                     qdt_dyn => NULL(), &
+                                     dgz_dyn => NULL(), &
+                                     ddp_dyn => NULL(), &
+                                     tdt_rad => NULL()   !miz
+
+  real, pointer, dimension(:,:,:) :: dflux_tr => NULL(),& ! tracer flux tendency
+                                     delta_tr => NULL()   ! tracer tendency
+end type surf_diff_type
 
 !<PUBLICTYPE >
  type atmos_data_type
@@ -125,6 +150,38 @@ public atmos_model_restart
      real,                 pointer, dimension(:,:) :: lat_bnd  => null() ! local latitude axis grid box corners in radians.
      real(kind=kind_phys), pointer, dimension(:,:) :: lon      => null() ! local longitude axis grid box centers in radians.
      real(kind=kind_phys), pointer, dimension(:,:) :: lat      => null() ! local latitude axis grid box centers in radians.
+     real, pointer, dimension(:,:) :: t_bot    => null() ! temperature at lowest model level
+     real, pointer, dimension(:,:,:) :: tr_bot => null() ! tracers at lowest model level
+     real, pointer, dimension(:,:) :: z_bot    => null() ! height above the surface for the lowest model level
+     real, pointer, dimension(:,:) :: p_bot    => null() ! pressure at lowest model level
+     real, pointer, dimension(:,:) :: u_bot    => null() ! zonal wind component at lowest model level
+     real, pointer, dimension(:,:) :: v_bot    => null() ! meridional wind component at lowest model level
+     real, pointer, dimension(:,:) :: p_surf   => null() ! surface pressure
+     real, pointer, dimension(:,:) :: slp      => null() ! sea level pressure
+     real, pointer, dimension(:,:) :: gust     => null() ! gustiness factor
+     real, pointer, dimension(:,:) :: coszen   => null() ! cosine of the zenith angle
+     real, pointer, dimension(:,:) :: flux_sw  => null() ! net shortwave flux (W/m2) at the surface
+     real, pointer, dimension(:,:) :: flux_sw_dir            =>null()
+     real, pointer, dimension(:,:) :: flux_sw_dif            =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_vis_dir   =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_vis_dif   =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_total_dir =>null()
+     real, pointer, dimension(:,:) :: flux_sw_down_total_dif =>null()
+     real, pointer, dimension(:,:) :: flux_sw_vis            =>null()
+     real, pointer, dimension(:,:) :: flux_sw_vis_dir        =>null()
+     real, pointer, dimension(:,:) :: flux_sw_vis_dif        =>null()
+     real, pointer, dimension(:,:) :: flux_lw  => null() ! net longwave flux (W/m2) at the surface
+     real, pointer, dimension(:,:) :: lprec    => null() ! mass of liquid precipitation since last time step (Kg/m2)
+     real, pointer, dimension(:,:) :: fprec    => null() ! ass of frozen precipitation since last time step (Kg/m2)
+     logical, pointer, dimension(:,:) :: maskmap =>null()! A pointer to an array indicating which
+                                                         ! logical processors are actually used for
+                                                         ! the ocean code. The other logical
+                                                         ! processors would be all land points and
+                                                         ! are not assigned to actual processors.
+                                                         ! This need not be assigned if all logical
+                                                         ! processors are used. This variable is dummy and need
+                                                         ! not to be set, but it is needed to pass compilation.
+     type (surf_diff_type)         :: Surf_diff          ! store data needed by the multi-step version of the diffusion algorithm
      type (time_type)              :: Time               ! current time
      type (time_type)              :: Time_step          ! atmospheric time step.
      type (time_type)              :: Time_init          ! reference time.
@@ -147,7 +204,53 @@ public atmos_model_restart
      logical                       :: write_coarse_restart_files  ! whether to write coarse restart files
      logical                       :: write_only_coarse_intermediate_restarts  ! whether to write only coarse intermediate restart files
      character(len=64)             :: coarsening_strategy  ! Strategy for coarse-graining diagnostics and restart files
+     type(coupler_2d_bc_type)      :: fields   ! array of fields used for additional tracers
 end type atmos_data_type
+!</PUBLICTYPE >
+
+!<PUBLICTYPE >
+type land_ice_atmos_boundary_type
+   ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
+!quantities going from land+ice to atmos
+   real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
+   real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
+   real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
+   real, dimension(:,:),   pointer :: q_ref          =>null() ! surface air specific humidity (cjg: PBL depth mods)
+   real, dimension(:,:),   pointer :: albedo         =>null() ! surface albedo for radiation calculations
+   real, dimension(:,:),   pointer :: albedo_vis_dir =>null()
+   real, dimension(:,:),   pointer :: albedo_nir_dir =>null()
+   real, dimension(:,:),   pointer :: albedo_vis_dif =>null()
+   real, dimension(:,:),   pointer :: albedo_nir_dif =>null()
+   real, dimension(:,:),   pointer :: land_frac      =>null() ! fraction amount of land in a grid box
+   real, dimension(:,:),   pointer :: dt_t           =>null() ! temperature tendency at the lowest level
+   real, dimension(:,:,:), pointer :: dt_tr          =>null() ! tracer tendency at the lowest level
+   real, dimension(:,:),   pointer :: u_flux         =>null() ! zonal wind stress
+   real, dimension(:,:),   pointer :: v_flux         =>null() ! meridional wind stress
+   real, dimension(:,:),   pointer :: dtaudu         =>null() ! derivative of zonal wind stress w.r.t. the lowest zonal level wind speed
+   real, dimension(:,:),   pointer :: dtaudv         =>null() ! derivative of meridional wind stress w.r.t. the lowest meridional level wind speed
+   real, dimension(:,:),   pointer :: u_star         =>null() ! friction velocity
+   real, dimension(:,:),   pointer :: b_star         =>null() ! bouyancy scale
+   real, dimension(:,:),   pointer :: q_star         =>null() ! moisture scale
+   real, dimension(:,:),   pointer :: shflx          =>null() ! sensible heat flux !miz
+   real, dimension(:,:),   pointer :: lhflx          =>null() ! latent heat flux   !miz
+   real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
+   real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
+   real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
+   integer                         :: xtype                   !REGRID, REDIST or DIRECT
+end type land_ice_atmos_boundary_type
+
+!<PUBLICTYPE >
+type :: land_atmos_boundary_type
+   real, dimension(:,:), pointer :: data =>NULL() ! quantities going from land alone to atmos (none at present)
+end type land_atmos_boundary_type
+!</PUBLICTYPE >
+
+!<PUBLICTYPE >
+!quantities going from ice alone to atmos (none at present)
+type :: ice_atmos_boundary_type
+   real, dimension(:,:), pointer :: data =>NULL() ! quantities going from ice alone to atmos (none at present)
+end type ice_atmos_boundary_type
 !</PUBLICTYPE >
 
 integer :: fv3Clock, getClock, overrideClock, setupClock, radClock, physClock, diagClock, shieldClock
@@ -165,8 +268,14 @@ real, dimension(4096) :: fdiag = 0. ! xic: TODO: this is hard coded, space can r
 logical :: fdiag_override = .false. ! lmh: if true overrides fdiag and fhzer: all quantities are zeroed out
                                     ! after every calcluation, output interval and accumulation/avg/max/min
                                     ! are controlled by diag_manager, fdiag controls output interval only
-namelist /atmos_model_nml/ blocksize, chksum_debug, dycore_only, debug, sync, first_time_step, fdiag, fprint, &
+logical :: do_netcdf_restart = .true.
+logical :: restart_tbot_qbot = .false.
+integer :: nxblocks = 1
+integer :: nyblocks = 1
+namelist /atmos_model_nml/ do_netcdf_restart, restart_tbot_qbot, nxblocks, nyblocks, &
+                           blocksize, chksum_debug, dycore_only, debug, sync, first_time_step, fdiag, fprint, &
                            fdiag_override, ignore_rst_cksum
+
 type (time_type) :: diag_time, diag_time_fhzero
 logical :: fdiag_fix = .false.
 
@@ -199,6 +308,134 @@ real(kind=kind_phys), parameter :: zero = 0.0_kind_phys
 
 contains
 
+!from atmos_null
+subroutine update_atmos_model_down( Surface_boundary, Atmos )
+!-----------------------------------------------------------------------
+!                       atmospheric driver
+!    performs radiation, damping, and vertical diffusion of momentum,
+!    tracers, and downward heat/moisture
+!
+!-----------------------------------------------------------------------
+
+  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  type (atmos_data_type), intent(in) :: Atmos
+
+  return
+
+end subroutine update_atmos_model_down
+! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="update_atmos_model_up">
+!
+!-----------------------------------------------------------------------
+! <OVERVIEW>
+!   upward vertical diffusion of heat/moisture and moisture processes
+! </OVERVIEW>
+
+!<DESCRIPTION>
+!   Called every time step as the atmospheric driver to finish the upward
+!   sweep of the tridiagonal elimination for heat/moisture and compute the
+!   convective and large-scale tendencies.  The atmospheric variables are
+!   advanced one time step and tendencies set back to zero. 
+!</DESCRIPTION>
+
+! <TEMPLATE>
+!     call  update_atmos_model_up( Surface_boundary, Atmos )
+! </TEMPLATE>
+
+! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains quantities going from land+ice to atmos.  
+! </IN>
+
+! <IN NAME="Atmos" TYPE="type(atmos_data_type)">
+!   Derived-type variable that contains fields needed by the flux exchange module.
+!   These fields describe the atmospheric grid and are needed to
+!   compute/exchange fluxes with other component models.  All fields in this
+!   variable type are allocated for the global grid (without halo regions).
+! </IN>
+subroutine update_atmos_model_up( Surface_boundary, Atmos )
+!-----------------------------------------------------------------------
+!                       atmospheric driver
+!    performs upward vertical diffusion of heat/moisture and
+!    moisture processes
+!
+!-----------------------------------------------------------------------
+
+   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+   type (atmos_data_type), intent(in) :: Atmos
+ 
+   return
+
+end subroutine update_atmos_model_up
+
+subroutine ice_atm_bnd_type_chksum(id, timestep, bnd_type)
+  use fms_mod,                 only: stdout
+  use mpp_mod,                 only: mpp_chksum
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(ice_atmos_boundary_type), intent(in) :: bnd_type
+ integer ::   n, outunit
+
+    outunit = stdout()
+    write(outunit,*) 'BEGIN CHECKSUM(ice_atmos_boundary_type):: ', id, timestep
+!    write(outunit,100) 'ice_atm_bnd_type%data',mpp_chksum(data_type%data)
+
+100 FORMAT("CHECKSUM::",A32," = ",Z20)
+
+end subroutine ice_atm_bnd_type_chksum
+
+subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(land_ice_atmos_boundary_type), intent(in) :: bnd_type
+ integer ::   n, outunit
+
+    outunit = stdout()
+    write(outunit,*) 'BEGIN CHECKSUM(lnd_ice_Atm_bnd_type):: ', id, timestep
+100 FORMAT("CHECKSUM::",A32," = ",Z20)
+    write(outunit,100) 'lnd_ice_atm_bnd_type%t             ',mpp_chksum(bnd_type%t              )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo        ',mpp_chksum(bnd_type%albedo         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dir',mpp_chksum(bnd_type%albedo_vis_dir )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dir',mpp_chksum(bnd_type%albedo_nir_dir )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dif',mpp_chksum(bnd_type%albedo_vis_dif )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dif',mpp_chksum(bnd_type%albedo_nir_dif )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%land_frac     ',mpp_chksum(bnd_type%land_frac      )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dt_t          ',mpp_chksum(bnd_type%dt_t           )
+    do n = 1, size(bnd_type%dt_tr,3)
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dt_tr(:,:,n)  ',mpp_chksum(bnd_type%dt_tr(:,:,n)   )
+    enddo
+    write(outunit,100) 'lnd_ice_atm_bnd_type%u_flux        ',mpp_chksum(bnd_type%u_flux         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%v_flux        ',mpp_chksum(bnd_type%v_flux         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dtaudu        ',mpp_chksum(bnd_type%dtaudu         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dtaudv        ',mpp_chksum(bnd_type%dtaudv         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%u_star        ',mpp_chksum(bnd_type%u_star         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
+!    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
+
+end subroutine lnd_ice_atm_bnd_type_chksum
+!
+subroutine lnd_atm_bnd_type_chksum(id, timestep, bnd_type)
+  use fms_mod,                 only: stdout
+  use mpp_mod,                 only: mpp_chksum
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(land_atmos_boundary_type), intent(in) :: bnd_type
+ integer ::   n, outunit
+
+    outunit = stdout()
+    write(outunit,*) 'BEGIN CHECKSUM(lnd_atmos_boundary_type):: ', id, timestep
+!    write(outunit,100) 'lnd_atm_bnd_type%data',mpp_chksum(bnd_type%data)
+
+100 FORMAT("CHECKSUM::",A32," = ",Z20)
+
+end subroutine lnd_atm_bnd_type_chksum
+!
 !#######################################################################
 ! <SUBROUTINE NAME="update_radiation_physics">
 !
@@ -214,6 +451,14 @@ contains
 !     call  update_atmos_radiation_physics (Atmos)
 !   </TEMPLATE>
 
+!   <TEMPLATE> !!! FROM AM4, do we replace the shield one or we do mods to accomodate surface_boundary?
+!     call  update_atmos_model_radiation ( Surface_boundary, Atmos)
+!   </TEMPLATE>
+
+! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains quantities going from land+ice to atmos.
+! </IN>
+
 ! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
 !   Derived-type variable that contains fields needed by the flux exchange module.
 !   These fields describe the atmospheric grid and are needed to
@@ -221,9 +466,13 @@ contains
 !   variable type are allocated for the global grid (without halo regions).
 ! </INOUT>
 
-subroutine update_atmos_radiation_physics (Atmos)
+subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change to match the full coupler call
+! subroutine update_atmos_radiation_physics (Atmos) !original
 !-----------------------------------------------------------------------
   type (atmos_data_type), intent(in) :: Atmos
+  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  ! dont know if Surface_boundary is needed here for the fluxes in shield, seems to be used as follow in am4
+  ! AM4/src/atmos_phys/atmos_param/radiation/driver/radiation_driver.F90
 !--- local variables---
     integer :: nb, jdat(8)
     integer :: nthrds
@@ -335,9 +584,20 @@ subroutine update_atmos_radiation_physics (Atmos)
     call mpp_clock_end(shieldClock)
 
 !-----------------------------------------------------------------------
- end subroutine update_atmos_radiation_physics
-! </SUBROUTINE>
+ !end subroutine update_atmos_radiation_physics
+end subroutine update_atmos_model_radiation ! name change to match the full coupler call
 
+! </SUBROUTINE>
+! from coupled atmos_model
+subroutine atm_stock_pe (Atm, index, value)
+
+type (atmos_data_type), intent(inout) :: Atm
+integer,                intent(in)    :: index
+real,                   intent(out)   :: value
+
+value = 0.0
+
+end subroutine atm_stock_pe
 
 !#######################################################################
 ! <SUBROUTINE NAME="atmos_model_init">
@@ -346,7 +606,8 @@ subroutine update_atmos_radiation_physics (Atmos)
 ! Routine to initialize the atmospheric model
 ! </OVERVIEW>
 
-subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
+!subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
+subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_radiation) !argument change to match the full coupler
 
 #ifdef OPENMP
   use omp_lib
@@ -355,8 +616,10 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
 
   type (atmos_data_type), intent(inout) :: Atmos
   type (time_type), intent(in) :: Time_init, Time, Time_step
-  integer, intent(in) :: iau_offset
+  logical, intent(in) :: do_concurrent_radiation
+  !integer, intent(inout) :: iau_offset = 0
 !--- local variables ---
+  integer :: iau_offset = 0
   integer :: unit, ntdiag, ntfamily, i, j, k
   integer :: mlon, mlat, nlon, nlat, nlev, sec, dt, sec_prev
   integer :: ierr, io, logunit
@@ -370,7 +633,6 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
   character(len=64) :: filename, filename2, pelist_name
   character(len=132) :: text
   logical :: p_hydro, hydro, fexist
-  logical :: do_inline_mp, do_cosp
   logical, save :: block_message = .true.
   integer :: bdat(8), cdat(8)
   integer :: ntracers
@@ -423,8 +685,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
 !-----------------------------------------------------------------------
 !--- before going any further check definitions for 'blocks'
 !-----------------------------------------------------------------------
-   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num, &
-                                 do_inline_mp, do_cosp)
+   call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num)
    call define_blocks_packed ('atmos_model', Atm_block, isc, iec, jsc, jec, nlev, &
                               blocksize, block_message)
 
@@ -475,10 +736,6 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, iau_offset)
    Init_parm%xlat            => Atmos%lat
    Init_parm%area            => Atmos%area
    Init_parm%tracer_names    => tracer_names
-!--- setup IPD_Control
-   IPD_Control%dycore_hydrostatic = hydro
-   IPD_Control%do_inline_mp = do_inline_mp
-   IPD_Control%do_cosp = do_cosp
 
    allocate(Init_parm%input_nml_file, mold=input_nml_file)
    Init_parm%input_nml_file  => input_nml_file
@@ -597,7 +854,7 @@ end subroutine atmos_model_init
 ! <OVERVIEW>
 subroutine update_atmos_model_dynamics (Atmos)
 ! run the atmospheric dynamics to advect the properties
-  type (atmos_data_type), intent(in) :: Atmos
+  type (atmos_data_type), intent(in) :: Atmos ! should this be 'inout'
 
     call set_atmosphere_pelist()
     call mpp_clock_begin(fv3Clock)
@@ -715,8 +972,6 @@ subroutine update_atmos_model_state (Atmos)
  end subroutine update_atmos_model_state
 ! </SUBROUTINE>
 
-
-
 !#######################################################################
 ! <SUBROUTINE NAME="atmos_model_end">
 !
@@ -827,6 +1082,32 @@ type(atmos_data_type), intent(in) :: atm
   write(outunit,100) ' atm%lat_bnd                ', mpp_chksum(atm%lat_bnd               )
   write(outunit,100) ' atm%lon                    ', mpp_chksum(atm%lon                   )
   write(outunit,100) ' atm%lat                    ', mpp_chksum(atm%lat                   )
+  write(outunit,100) ' atm%t_bot                  ', mpp_chksum(atm%t_bot                 )
+  do n = 1, size(atm%tr_bot,3)
+  write(outunit,100) ' atm%tr_bot(:,:,n)          ', mpp_chksum(atm%tr_bot(:,:,n)         )
+  enddo
+  write(outunit,100) ' atm%z_bot                  ', mpp_chksum(atm%z_bot                 )
+  write(outunit,100) ' atm%p_bot                  ', mpp_chksum(atm%p_bot                 )
+  write(outunit,100) ' atm%u_bot                  ', mpp_chksum(atm%u_bot                 )
+  write(outunit,100) ' atm%v_bot                  ', mpp_chksum(atm%v_bot                 )
+  write(outunit,100) ' atm%p_surf                 ', mpp_chksum(atm%p_surf                )
+  write(outunit,100) ' atm%slp                    ', mpp_chksum(atm%slp                   )
+  write(outunit,100) ' atm%gust                   ', mpp_chksum(atm%gust                  )
+  write(outunit,100) ' atm%coszen                 ', mpp_chksum(atm%coszen                )
+  write(outunit,100) ' atm%flux_sw                ', mpp_chksum(atm%flux_sw               )
+  write(outunit,100) ' atm%flux_sw_dir            ', mpp_chksum(atm%flux_sw_dir           )
+  write(outunit,100) ' atm%flux_sw_dif            ', mpp_chksum(atm%flux_sw_dif           )
+  write(outunit,100) ' atm%flux_sw_down_vis_dir   ', mpp_chksum(atm%flux_sw_down_vis_dir  )
+  write(outunit,100) ' atm%flux_sw_down_vis_dif   ', mpp_chksum(atm%flux_sw_down_vis_dif  )
+  write(outunit,100) ' atm%flux_sw_down_total_dir ', mpp_chksum(atm%flux_sw_down_total_dir)
+  write(outunit,100) ' atm%flux_sw_down_total_dif ', mpp_chksum(atm%flux_sw_down_total_dif)
+  write(outunit,100) ' atm%flux_sw_vis            ', mpp_chksum(atm%flux_sw_vis           )
+  write(outunit,100) ' atm%flux_sw_vis_dir        ', mpp_chksum(atm%flux_sw_vis_dir       )
+  write(outunit,100) ' atm%flux_sw_vis_dif        ', mpp_chksum(atm%flux_sw_vis_dif       )
+  write(outunit,100) ' atm%flux_lw                ', mpp_chksum(atm%flux_lw               )
+  write(outunit,100) ' atm%lprec                  ', mpp_chksum(atm%lprec                 )
+  write(outunit,100) ' atm%fprec                  ', mpp_chksum(atm%fprec                 )
+!  call surf_diff_type_chksum(id, timestep, atm%surf_diff)
 
 end subroutine atmos_data_type_chksum
 

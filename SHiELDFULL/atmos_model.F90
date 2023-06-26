@@ -85,6 +85,7 @@ use IPD_driver,         only: IPD_initialize, IPD_setup_step, &
                               IPD_physics_step2, IPD_physics_end
 
 use coupler_types_mod, only : coupler_2d_bc_type
+use diag_integral_mod, only : diag_integral_init
 
 #ifdef STOCHY
 use stochastic_physics, only: init_stochastic_physics,         &
@@ -369,103 +370,6 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos )
 
 end subroutine update_atmos_model_up
 
-subroutine ice_atm_bnd_type_chksum(id, timestep, bnd_type)
-  use fms_mod,                 only: stdout
-  use mpp_mod,                 only: mpp_chksum
-
-    character(len=*), intent(in) :: id
-    integer         , intent(in) :: timestep
-    type(ice_atmos_boundary_type), intent(in) :: bnd_type
- integer ::   n, outunit
-
-    outunit = stdout()
-    write(outunit,*) 'BEGIN CHECKSUM(ice_atmos_boundary_type):: ', id, timestep
-!    write(outunit,100) 'ice_atm_bnd_type%data',mpp_chksum(data_type%data)
-
-100 FORMAT("CHECKSUM::",A32," = ",Z20)
-
-end subroutine ice_atm_bnd_type_chksum
-
-subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
-
-    character(len=*), intent(in) :: id
-    integer         , intent(in) :: timestep
-    type(land_ice_atmos_boundary_type), intent(in) :: bnd_type
- integer ::   n, outunit
-
-    outunit = stdout()
-    write(outunit,*) 'BEGIN CHECKSUM(lnd_ice_Atm_bnd_type):: ', id, timestep
-100 FORMAT("CHECKSUM::",A32," = ",Z20)
-    write(outunit,100) 'lnd_ice_atm_bnd_type%t             ',mpp_chksum(bnd_type%t              )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo        ',mpp_chksum(bnd_type%albedo         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dir',mpp_chksum(bnd_type%albedo_vis_dir )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dir',mpp_chksum(bnd_type%albedo_nir_dir )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dif',mpp_chksum(bnd_type%albedo_vis_dif )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dif',mpp_chksum(bnd_type%albedo_nir_dif )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%land_frac     ',mpp_chksum(bnd_type%land_frac      )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%dt_t          ',mpp_chksum(bnd_type%dt_t           )
-    do n = 1, size(bnd_type%dt_tr,3)
-    write(outunit,100) 'lnd_ice_atm_bnd_type%dt_tr(:,:,n)  ',mpp_chksum(bnd_type%dt_tr(:,:,n)   )
-    enddo
-    write(outunit,100) 'lnd_ice_atm_bnd_type%u_flux        ',mpp_chksum(bnd_type%u_flux         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%v_flux        ',mpp_chksum(bnd_type%v_flux         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%dtaudu        ',mpp_chksum(bnd_type%dtaudu         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%dtaudv        ',mpp_chksum(bnd_type%dtaudv         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%u_star        ',mpp_chksum(bnd_type%u_star         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
-!    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
-
-end subroutine lnd_ice_atm_bnd_type_chksum
-!
-subroutine lnd_atm_bnd_type_chksum(id, timestep, bnd_type)
-  use fms_mod,                 only: stdout
-  use mpp_mod,                 only: mpp_chksum
-
-    character(len=*), intent(in) :: id
-    integer         , intent(in) :: timestep
-    type(land_atmos_boundary_type), intent(in) :: bnd_type
- integer ::   n, outunit
-
-    outunit = stdout()
-    write(outunit,*) 'BEGIN CHECKSUM(lnd_atmos_boundary_type):: ', id, timestep
-!    write(outunit,100) 'lnd_atm_bnd_type%data',mpp_chksum(bnd_type%data)
-
-100 FORMAT("CHECKSUM::",A32," = ",Z20)
-
-end subroutine lnd_atm_bnd_type_chksum
-!
-!#######################################################################
-! <SUBROUTINE NAME="update_radiation_physics">
-!
-!<DESCRIPTION>
-!   Called every time step as the atmospheric driver to compute the
-!   atmospheric tendencies for dynamics, radiation, vertical diffusion of
-!   momentum, tracers, and heat/moisture.  For heat/moisture only the
-!   downward sweep of the tridiagonal elimination is performed, hence
-!   the name "_down".
-!</DESCRIPTION>
-
-!   <TEMPLATE>
-!     call  update_atmos_radiation_physics (Atmos)
-!   </TEMPLATE>
-
-!   <TEMPLATE> !!! FROM AM4, do we replace the shield one or we do mods to accomodate surface_boundary?
-!     call  update_atmos_model_radiation ( Surface_boundary, Atmos)
-!   </TEMPLATE>
-
-! <IN NAME = "Surface_boundary" TYPE="type(land_ice_atmos_boundary_type)">
-!   Derived-type variable that contains quantities going from land+ice to atmos.
-! </IN>
-
-! <INOUT NAME="Atmos" TYPE="type(atmos_data_type)">
-!   Derived-type variable that contains fields needed by the flux exchange module.
-!   These fields describe the atmospheric grid and are needed to
-!   compute/exchange fluxes with other component models.  All fields in this
-!   variable type are allocated for the global grid (without halo regions).
-! </INOUT>
-
 subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change to match the full coupler call
 ! subroutine update_atmos_radiation_physics (Atmos) !original
 !-----------------------------------------------------------------------
@@ -667,9 +571,11 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
       ierr = check_nml_error(io, 'atmos_model_nml')
    endif
 !-----------------------------------------------------------------------
+   !call get_number_tracers(MODEL_ATMOS, num_tracers=ntracers)
    call atmosphere_resolution (nlon, nlat, global=.false.)
    call atmosphere_resolution (mlon, mlat, global=.true.)
-   call alloc_atmos_data_type (nlon, nlat, Atmos)
+   !call alloc_atmos_data_type (nlon, nlat, Atmos)
+   call alloc_atmos_data_type (nlon, nlat, ntracers, Atmos)
    call atmosphere_domain (Atmos%domain, Atmos%domain_for_read, Atmos%layout, Atmos%regional, &
                            Atmos%bounded_domain)
    call atmosphere_diag_axes (Atmos%axes)
@@ -843,6 +749,9 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
    endif
    shieldClock= mpp_clock_id( '--SHiELD Physics      ', flags=clock_flag_default, grain=CLOCK_COMPONENT )
 
+call diag_integral_init (Atmos % Time_init, Atmos % Time,  &
+                         Atmos % lon_bnd(:,:),  &
+                         Atmos % lat_bnd(:,:), Atmos % area)
 !-----------------------------------------------------------------------
 end subroutine atmos_model_init
 ! </SUBROUTINE>
@@ -1113,22 +1022,244 @@ end subroutine atmos_data_type_chksum
 
 ! </SUBROUTINE>
 
-  subroutine alloc_atmos_data_type (nlon, nlat, Atmos)
-   integer, intent(in) :: nlon, nlat
+!#######################################################################
+! <SUBROUTINE NAME="lnd_ice_atm_bnd_type_chksum">
+!
+! <OVERVIEW>
+!  Print checksums of the various fields in the land_ice_atmos_boundary_type.
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Routine to print checksums of the various fields in the land_ice_atmos_boundary_type.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call atmos_data_type_chksum(id, timestep, bnd_type)
+! </TEMPLATE>
+
+! <IN NAME="bnd_type" TYPE="type(land_ice_atmos_boundary_type)">
+!   Derived-type variable that contains fields in the land_ice_atmos_boundary_type.
+! </INOUT>
+!
+! <IN NAME="id" TYPE="character">
+!   Label to differentiate where this routine in being called from.
+! </IN>
+!
+! <IN NAME="timestep" TYPE="integer">
+!   An integer to indicate which timestep this routine is being called for.
+! </IN>
+!
+
+
+subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(land_ice_atmos_boundary_type), intent(in) :: bnd_type
+ integer ::   n, outunit
+
+    outunit = stdout()
+    write(outunit,*) 'BEGIN CHECKSUM(lnd_ice_Atm_bnd_type):: ', id, timestep
+100 format("CHECKSUM::",A32," = ",Z20)
+    write(outunit,100) 'lnd_ice_atm_bnd_type%t             ',mpp_chksum(bnd_type%t              )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo        ',mpp_chksum(bnd_type%albedo         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dir',mpp_chksum(bnd_type%albedo_vis_dir )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dir',mpp_chksum(bnd_type%albedo_nir_dir )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dif',mpp_chksum(bnd_type%albedo_vis_dif )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dif',mpp_chksum(bnd_type%albedo_nir_dif )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%land_frac     ',mpp_chksum(bnd_type%land_frac      )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dt_t          ',mpp_chksum(bnd_type%dt_t           )
+    do n = 1, size(bnd_type%dt_tr,3)
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dt_tr(:,:,n)  ',mpp_chksum(bnd_type%dt_tr(:,:,n)   )
+    enddo
+    write(outunit,100) 'lnd_ice_atm_bnd_type%u_flux        ',mpp_chksum(bnd_type%u_flux         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%v_flux        ',mpp_chksum(bnd_type%v_flux         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dtaudu        ',mpp_chksum(bnd_type%dtaudu         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%dtaudv        ',mpp_chksum(bnd_type%dtaudv         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%u_star        ',mpp_chksum(bnd_type%u_star         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%b_star        ',mpp_chksum(bnd_type%b_star         )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%q_star        ',mpp_chksum(bnd_type%q_star         )
+#ifndef use_AM3_physics
+    write(outunit,100) 'lnd_ice_atm_bnd_type%shflx         ',mpp_chksum(bnd_type%shflx          )!miz
+    write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
+#endif
+    write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
+!    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
+
+end subroutine lnd_ice_atm_bnd_type_chksum
+! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="lnd_atm_bnd_type_chksum">
+!
+! <OVERVIEW>
+!  Print checksums of the various fields in the land_atmos_boundary_type.
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Routine to print checksums of the various fields in the land_atmos_boundary_type.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call lnd_atm_bnd_type_chksum(id, timestep, bnd_type)
+! </TEMPLATE>
+
+! <IN NAME="bnd_type" TYPE="type(land_atmos_boundary_type)">
+!   Derived-type variable that contains fields in the land_atmos_boundary_type.
+! </INOUT>
+!
+! <IN NAME="id" TYPE="character">
+!   Label to differentiate where this routine in being called from.
+! </IN>
+!
+! <IN NAME="timestep" TYPE="integer">
+!   An integer to indicate which timestep this routine is being called for.
+! </IN>
+!
+
+
+subroutine lnd_atm_bnd_type_chksum(id, timestep, bnd_type)
+  use fms_mod,                 only: stdout
+  use mpp_mod,                 only: mpp_chksum
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(land_atmos_boundary_type), intent(in) :: bnd_type
+ integer ::   n, outunit
+
+    outunit = stdout()
+    write(outunit,*) 'BEGIN CHECKSUM(lnd_atmos_boundary_type):: ', id, timestep
+!    write(outunit,100) 'lnd_atm_bnd_type%data',mpp_chksum(bnd_type%data)
+
+100 format("CHECKSUM::",A32," = ",Z20)
+
+end subroutine lnd_atm_bnd_type_chksum
+! </SUBROUTINE>
+
+!#######################################################################
+! <SUBROUTINE NAME="ice_atm_bnd_type_chksum">
+!
+! <OVERVIEW>
+!  Print checksums of the various fields in the ice_atmos_boundary_type.
+! </OVERVIEW>
+
+! <DESCRIPTION>
+!  Routine to print checksums of the various fields in the ice_atmos_boundary_type.
+! </DESCRIPTION>
+
+! <TEMPLATE>
+!   call ice_atm_bnd_type_chksum(id, timestep, bnd_type)
+! </TEMPLATE>
+
+! <IN NAME="bnd_type" TYPE="type(ice_atmos_boundary_type)">
+!   Derived-type variable that contains fields in the ice_atmos_boundary_type.
+! </INOUT>
+!
+! <IN NAME="id" TYPE="character">
+!   Label to differentiate where this routine in being called from.
+! </IN>
+!
+! <IN NAME="timestep" TYPE="integer">
+!   An integer to indicate which timestep this routine is being called for.
+! </IN>
+!
+
+
+subroutine ice_atm_bnd_type_chksum(id, timestep, bnd_type)
+  use fms_mod,                 only: stdout
+  use mpp_mod,                 only: mpp_chksum
+
+    character(len=*), intent(in) :: id
+    integer         , intent(in) :: timestep
+    type(ice_atmos_boundary_type), intent(in) :: bnd_type
+ integer ::   n, outunit
+
+    outunit = stdout()
+    write(outunit,*) 'BEGIN CHECKSUM(ice_atmos_boundary_type):: ', id, timestep
+!    write(outunit,100) 'ice_atm_bnd_type%data',mpp_chksum(data_type%data)
+
+100 format("CHECKSUM::",A32," = ",Z20)
+
+
+end subroutine ice_atm_bnd_type_chksum
+! </SUBROUTINE>
+
+
+  subroutine alloc_atmos_data_type (nlon, nlat, ntprog, Atmos)
+   integer, intent(in) :: nlon, nlat, ntprog
    type(atmos_data_type), intent(inout) :: Atmos
     allocate ( Atmos % lon_bnd  (nlon+1,nlat+1), &
                Atmos % lat_bnd  (nlon+1,nlat+1), &
-               Atmos % lon      (nlon,nlat),     &
-               Atmos % lat      (nlon,nlat)      )
+               Atmos % lon      (nlon,nlat), &
+               Atmos % lat      (nlon,nlat), &
+               Atmos % t_bot    (nlon,nlat), &
+               Atmos % tr_bot   (nlon,nlat, ntprog), &
+               Atmos % z_bot    (nlon,nlat), &
+               Atmos % p_bot    (nlon,nlat), &
+               Atmos % u_bot    (nlon,nlat), &
+               Atmos % v_bot    (nlon,nlat), &
+               Atmos % p_surf   (nlon,nlat), &
+               Atmos % slp      (nlon,nlat), &
+               Atmos % gust     (nlon,nlat), &
+               Atmos % flux_sw  (nlon,nlat), &
+               Atmos % flux_sw_dir (nlon,nlat), &
+               Atmos % flux_sw_dif (nlon,nlat), &
+               Atmos % flux_sw_down_vis_dir (nlon,nlat), &
+               Atmos % flux_sw_down_vis_dif (nlon,nlat), &
+               Atmos % flux_sw_down_total_dir (nlon,nlat), &
+               Atmos % flux_sw_down_total_dif (nlon,nlat), &
+               Atmos % flux_sw_vis (nlon,nlat), &
+               Atmos % flux_sw_vis_dir (nlon,nlat), &
+               Atmos % flux_sw_vis_dif(nlon,nlat), &
+               Atmos % flux_lw  (nlon,nlat), &
+               Atmos % coszen   (nlon,nlat), &
+               Atmos % lprec    (nlon,nlat), &
+               Atmos % fprec    (nlon,nlat)  )
+
+    Atmos % flux_sw                 = 0.0
+    Atmos % flux_lw                 = 0.0
+    Atmos % flux_sw_dir             = 0.0
+    Atmos % flux_sw_dif             = 0.0
+    Atmos % flux_sw_down_vis_dir    = 0.0
+    Atmos % flux_sw_down_vis_dif    = 0.0
+    Atmos % flux_sw_down_total_dir  = 0.0
+    Atmos % flux_sw_down_total_dif  = 0.0
+    Atmos % flux_sw_vis             = 0.0
+    Atmos % flux_sw_vis_dir         = 0.0
+    Atmos % flux_sw_vis_dif         = 0.0
+    Atmos % coszen                  = 0.0
 
   end subroutine alloc_atmos_data_type
 
   subroutine dealloc_atmos_data_type (Atmos)
    type(atmos_data_type), intent(inout) :: Atmos
-    deallocate (Atmos%lon_bnd, &
-                Atmos%lat_bnd, &
-                Atmos%lon,     &
-                Atmos%lat      )
+    deallocate (Atmos%lon_bnd,                &
+                Atmos%lat_bnd,                &
+                Atmos%lon,                    &
+                Atmos%lat,                    &
+                Atmos%t_bot,                  &
+                Atmos%tr_bot,                 &
+                Atmos%z_bot,                  &
+                Atmos%p_bot,                  &
+                Atmos%u_bot,                  &
+                Atmos%v_bot,                  &
+                Atmos%p_surf,                 &
+                Atmos%slp,                    &
+                Atmos%gust,                   &
+                Atmos%flux_sw,                &
+                Atmos%flux_sw_dir,            &
+                Atmos%flux_sw_dif,            &
+                Atmos%flux_sw_down_vis_dir,   &
+                Atmos%flux_sw_down_vis_dif,   &
+                Atmos%flux_sw_down_total_dir, &
+                Atmos%flux_sw_down_total_dif, &
+                Atmos%flux_sw_vis,            &
+                Atmos%flux_sw_vis_dir,        &
+                Atmos%flux_sw_vis_dif,        &
+                Atmos%flux_lw,                &
+                Atmos%coszen,                 &
+                Atmos%lprec,                  &
+                Atmos%fprec  )
   end subroutine dealloc_atmos_data_type
 
 end module atmos_model_mod

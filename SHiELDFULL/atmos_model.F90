@@ -44,6 +44,7 @@ module atmos_model_mod
 use mpp_mod,            only: mpp_pe, mpp_root_pe, mpp_clock_id, mpp_clock_begin
 use mpp_mod,            only: mpp_clock_end, CLOCK_COMPONENT, MPP_CLOCK_SYNC
 use mpp_mod,            only: mpp_min, mpp_max, mpp_error, mpp_chksum
+use mpp_domains_mod,   only : mpp_get_compute_domain
 use mpp_domains_mod,    only: domain2d
 use mpp_mod,            only: mpp_get_current_pelist_name
 use mpp_mod,            only: input_nml_file, stdlog, stdout
@@ -578,6 +579,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
    call alloc_atmos_data_type (nlon, nlat, ntracers, Atmos)
    call atmosphere_domain (Atmos%domain, Atmos%domain_for_read, Atmos%layout, Atmos%regional, &
                            Atmos%bounded_domain)
+   call alloc_atmos_data_surfdiff_type (ntracers, Atmos)
    call atmosphere_diag_axes (Atmos%axes)
    call atmosphere_etalvls (Atmos%ak, Atmos%bk, flip=.true.)
    call atmosphere_grid_bdry (Atmos%lon_bnd, Atmos%lat_bnd, global=.false.)
@@ -1188,6 +1190,7 @@ end subroutine ice_atm_bnd_type_chksum
   subroutine alloc_atmos_data_type (nlon, nlat, ntprog, Atmos)
    integer, intent(in) :: nlon, nlat, ntprog
    type(atmos_data_type), intent(inout) :: Atmos
+
     allocate ( Atmos % lon_bnd  (nlon+1,nlat+1), &
                Atmos % lat_bnd  (nlon+1,nlat+1), &
                Atmos % lon      (nlon,nlat), &
@@ -1230,6 +1233,31 @@ end subroutine ice_atm_bnd_type_chksum
     Atmos % coszen                  = 0.0
 
   end subroutine alloc_atmos_data_type
+
+
+  subroutine alloc_atmos_data_surfdiff_type (ntprog, Atmos)
+   integer, intent(in) :: ntprog
+   type(atmos_data_type), intent(inout) :: Atmos
+   integer :: is, ie, js, je
+
+    call mpp_get_compute_domain(Atmos%domain,is,ie,js,je)
+
+    allocate ( Atmos % Surf_diff % dtmass(is:ie, js:je) )
+    allocate ( Atmos % Surf_diff % dflux_t(is:ie, js:je) )
+    allocate ( Atmos % Surf_diff % delta_t(is:ie, js:je) )
+    allocate ( Atmos % Surf_diff % delta_u(is:ie, js:je) )
+    allocate ( Atmos % Surf_diff % delta_v(is:ie, js:je) )
+    allocate ( Atmos % Surf_diff % dflux_tr(is:ie, js:je, ntprog) )
+    allocate ( Atmos % Surf_diff % delta_tr(is:ie, js:je, ntprog) )
+
+    Atmos % Surf_diff % dtmass   = 0.0
+    Atmos % Surf_diff % dflux_t  = 0.0
+    Atmos % Surf_diff % delta_t  = 0.0
+    Atmos % Surf_diff % delta_u  = 0.0
+    Atmos % Surf_diff % delta_v  = 0.0
+    Atmos % Surf_diff % dflux_tr = 0.0
+    Atmos % Surf_diff % delta_tr = 0.0
+  end subroutine alloc_atmos_data_surfdiff_type
 
   subroutine dealloc_atmos_data_type (Atmos)
    type(atmos_data_type), intent(inout) :: Atmos

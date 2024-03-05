@@ -60,7 +60,7 @@ use tracer_manager_mod, only: get_number_tracers, get_tracer_names
 use xgrid_mod,          only: grid_box_type
 use atmosphere_mod,     only: atmosphere_init
 use atmosphere_mod,     only: atmosphere_restart
-use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind
+use atmosphere_mod,     only: atmosphere_end, get_bottom_mass, get_bottom_wind!, apply_bottom_temp
 use atmosphere_mod,     only: atmosphere_state_update
 use atmosphere_mod,     only: atmos_phys_driver_statein
 use atmosphere_mod,     only: atmosphere_control_data
@@ -215,6 +215,7 @@ type land_ice_atmos_boundary_type
    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
    real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: t_ocean              =>null() ! surface temperature for radiation calculations
    real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
@@ -320,8 +321,12 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !-----------------------------------------------------------------------
 
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
-  type (atmos_data_type), intent(in) :: Atmos
-
+  type (atmos_data_type), intent(inout) :: Atmos
+  !!test joseph:
+  !!apply the output of surface_flux from the surface_boundary to atmos
+  !t_bot(i,j) = Atm(mygrid)%pt(i,j,npz)
+  !call apply_bottom_temp (surface_boundary%t)
+  !if (mpp_pe() == mpp_root_pe()) print*, 'APPLYING bottom temp'
   return
 
 end subroutine update_atmos_model_down
@@ -402,6 +407,13 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
     call mpp_clock_begin(overrideClock)
     call sfc_data_override (Atmos%Time, IPD_data, Atm_block, IPD_Control)
     call mpp_clock_end(overrideClock)
+
+!-----------------------------------------------------------------------------------
+!-----------------------------------------------------------------------------------
+!--- JOSEPH: do we override sfc here form ocean output before calling physics_step1
+    call apply_bottom_temp_to_IPD (Surface_boundary)
+!-----------------------------------------------------------------------------------
+!-----------------------------------------------------------------------------------
 
 !--- if dycore only run, set up the dummy physics output state as the input state
     if (dycore_only) then
@@ -897,6 +909,32 @@ subroutine update_atmos_model_state (Atmos)
     call mpp_clock_end(shieldClock)
 
  end subroutine update_atmos_model_state
+
+
+
+!Joseph: we apply here some variables/fluxes from the ocean coming through
+!the coupler code (through xgrid) and saved in atmos%surface_boundary
+
+
+subroutine apply_bottom_temp_to_IPD (Surface_boundary)
+
+  type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+  integer :: nb, blen, ix, i, j
+
+  do nb = 1,Atm_block%nblks
+     blen = Atm_block%blksz(nb)
+     do ix = 1, blen
+        i = Atm_block%index(nb)%ii(ix)
+        j = Atm_block%index(nb)%jj(ix)
+        !IPD_Data(nb)%Sfcprop%tsfc(ix)=Surface_boundary%t(i,j)
+        IPD_Data(nb)%Sfcprop%tsfc(ix)=Surface_boundary%t_ocean(i,j)
+     enddo
+  enddo
+
+end subroutine apply_bottom_temp_to_IPD
+
+
+
 ! </SUBROUTINE>
 
 !#######################################################################
@@ -1080,6 +1118,7 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,*) 'BEGIN CHECKSUM(lnd_ice_Atm_bnd_type):: ', id, timestep
 100 format("CHECKSUM::",A32," = ",Z20)
     write(outunit,100) 'lnd_ice_atm_bnd_type%t             ',mpp_chksum(bnd_type%t              )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%t_ocean       ',mpp_chksum(bnd_type%t_ocean              )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo        ',mpp_chksum(bnd_type%albedo         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dir',mpp_chksum(bnd_type%albedo_vis_dir )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dir',mpp_chksum(bnd_type%albedo_nir_dir )

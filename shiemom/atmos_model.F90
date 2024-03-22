@@ -411,7 +411,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 !-----------------------------------------------------------------------------------
 !-----------------------------------------------------------------------------------
 !--- JOSEPH: do we override sfc here form ocean output before calling physics_step1
-    call apply_bottom_temp_to_IPD (Surface_boundary)
+    call apply_sfc_data_to_IPD (Surface_boundary)
 !-----------------------------------------------------------------------------------
 !-----------------------------------------------------------------------------------
 
@@ -910,14 +910,13 @@ subroutine update_atmos_model_state (Atmos)
 
  end subroutine update_atmos_model_state
 
-
-
-!Joseph: we apply here some variables/fluxes from the ocean coming through
-!the coupler code (through xgrid) and saved in atmos%surface_boundary
-
-
-subroutine apply_bottom_temp_to_IPD (Surface_boundary)
-
+subroutine apply_sfc_data_to_IPD (Surface_boundary)
+!
+!By Joseph and Kun: 
+!Here we use sfc-layer variables/fluxes over ocean points from 
+!the coupler code (through xgrid and saved in atmos%surface_boundary)
+!to update variables in SHiELD physics 
+!
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
   integer :: nb, blen, ix, i, j
 
@@ -926,13 +925,22 @@ subroutine apply_bottom_temp_to_IPD (Surface_boundary)
      do ix = 1, blen
         i = Atm_block%index(nb)%ii(ix)
         j = Atm_block%index(nb)%jj(ix)
-        !IPD_Data(nb)%Sfcprop%tsfc(ix)=Surface_boundary%t(i,j)
-        IPD_Data(nb)%Sfcprop%tsfc(ix)=Surface_boundary%t_ocean(i,j)
+        ! Sensible and latent heat fluxes
+        IPD_Data(nb)%Sfcprop%shflx(ix)  = Surface_boundary%shflx(i,j)
+        IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
+        ! KGao: only do ocean points for the following fields 
+        if (nint(IPD_Data(nb)%Sfcprop%slmsk(ix)) == 0) then
+          ! sea surface temp 
+          IPD_Data(nb)%Sfcprop%tsfc(ix)   = Surface_boundary%t_ocean(i,j)
+          ! roughness length for momentum in mm; need to add heat/moisture
+          IPD_Data(nb)%Sfcprop%zorl(ix)   = 100.* Surface_boundary%rough_mom(i,j)
+          ! ustar
+          IPD_Data(nb)%Sfcprop%uustar(ix) = Surface_boundary%u_star(i,j)
+        endif
      enddo
   enddo
 
-end subroutine apply_bottom_temp_to_IPD
-
+end subroutine apply_sfc_data_to_IPD
 
 
 ! </SUBROUTINE>

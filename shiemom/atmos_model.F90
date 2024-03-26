@@ -215,7 +215,7 @@ type land_ice_atmos_boundary_type
    ! variables of this type are declared by coupler_main, allocated by flux_exchange_init.
 !quantities going from land+ice to atmos
    real, dimension(:,:),   pointer :: t              =>null() ! surface temperature for radiation calculations
-   real, dimension(:,:),   pointer :: t_ocean              =>null() ! surface temperature for radiation calculations
+   real, dimension(:,:),   pointer :: t_ocean        =>null() ! surface temperature for radiation calculations !joseph
    real, dimension(:,:),   pointer :: u_ref          =>null() ! surface zonal wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: v_ref          =>null() ! surface meridional wind (cjg: PBL depth mods) !bqx
    real, dimension(:,:),   pointer :: t_ref          =>null() ! surface air temperature (cjg: PBL depth mods)
@@ -238,6 +238,7 @@ type land_ice_atmos_boundary_type
    real, dimension(:,:),   pointer :: shflx          =>null() ! sensible heat flux !miz
    real, dimension(:,:),   pointer :: lhflx          =>null() ! latent heat flux   !miz
    real, dimension(:,:),   pointer :: rough_mom      =>null() ! surface roughness (used for momentum)
+   real, dimension(:,:),   pointer :: rough_heat     =>null() ! surface roughness (used for heat) ! kgao
    real, dimension(:,:),   pointer :: frac_open_sea  =>null() ! non-seaice fraction (%)
    real, dimension(:,:,:), pointer :: data           =>null() !collective field for "named" fields above
    integer                         :: xtype                   !REGRID, REDIST or DIRECT
@@ -925,15 +926,18 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
      do ix = 1, blen
         i = Atm_block%index(nb)%ii(ix)
         j = Atm_block%index(nb)%jj(ix)
-        ! Sensible and latent heat fluxes
+        ! sensible heat flux (rho*cp_air*t_flux)
         IPD_Data(nb)%Sfcprop%shflx(ix)  = Surface_boundary%shflx(i,j)
+        ! moisture flux (rho*q_flux)
         IPD_Data(nb)%Sfcprop%lhflx(ix)  = Surface_boundary%lhflx(i,j)
-        ! KGao: only do ocean points for the following fields 
+        ! only do ocean points for the fields below 
         if (nint(IPD_Data(nb)%Sfcprop%slmsk(ix)) == 0) then
           ! sea surface temp 
           IPD_Data(nb)%Sfcprop%tsfc(ix)   = Surface_boundary%t_ocean(i,j)
-          ! roughness length for momentum in mm; need to add heat/moisture
+          ! roughness length for momentum in cm
           IPD_Data(nb)%Sfcprop%zorl(ix)   = 100.* Surface_boundary%rough_mom(i,j)
+          ! roughness length for heat in cm
+          IPD_Data(nb)%Sfcprop%ztrl(ix)   = 100.* Surface_boundary%rough_heat(i,j)
           ! ustar
           IPD_Data(nb)%Sfcprop%uustar(ix) = Surface_boundary%u_star(i,j)
         endif
@@ -1126,7 +1130,7 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,*) 'BEGIN CHECKSUM(lnd_ice_Atm_bnd_type):: ', id, timestep
 100 format("CHECKSUM::",A32," = ",Z20)
     write(outunit,100) 'lnd_ice_atm_bnd_type%t             ',mpp_chksum(bnd_type%t              )
-    write(outunit,100) 'lnd_ice_atm_bnd_type%t_ocean       ',mpp_chksum(bnd_type%t_ocean              )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%t_ocean       ',mpp_chksum(bnd_type%t_ocean        )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo        ',mpp_chksum(bnd_type%albedo         )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_vis_dir',mpp_chksum(bnd_type%albedo_vis_dir )
     write(outunit,100) 'lnd_ice_atm_bnd_type%albedo_nir_dir',mpp_chksum(bnd_type%albedo_nir_dir )
@@ -1149,6 +1153,7 @@ subroutine lnd_ice_atm_bnd_type_chksum(id, timestep, bnd_type)
     write(outunit,100) 'lnd_ice_atm_bnd_type%lhflx         ',mpp_chksum(bnd_type%lhflx          )!miz
 #endif
     write(outunit,100) 'lnd_ice_atm_bnd_type%rough_mom     ',mpp_chksum(bnd_type%rough_mom      )
+    write(outunit,100) 'lnd_ice_atm_bnd_type%rough_heat    ',mpp_chksum(bnd_type%rough_heat     )!kgao
 !    write(outunit,100) 'lnd_ice_atm_bnd_type%data          ',mpp_chksum(bnd_type%data           )
 
 end subroutine lnd_ice_atm_bnd_type_chksum

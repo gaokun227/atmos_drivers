@@ -380,7 +380,7 @@ end subroutine update_atmos_model_up
 subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change to match the full coupler call
 ! subroutine update_atmos_radiation_physics (Atmos) !original
 !-----------------------------------------------------------------------
-  type (atmos_data_type), intent(in) :: Atmos
+  type (atmos_data_type), intent(inout) :: Atmos
   type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
   ! dont know if Surface_boundary is needed here for the fluxes in shield, seems to be used as follow in am4
   ! AM4/src/atmos_phys/atmos_param/radiation/driver/radiation_driver.F90
@@ -413,6 +413,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
 !-----------------------------------------------------------------------------------
 !--- JOSEPH: do we override sfc here form ocean output before calling physics_step1
     call apply_sfc_data_to_IPD (Surface_boundary)
+
 !-----------------------------------------------------------------------------------
 !-----------------------------------------------------------------------------------
 
@@ -474,6 +475,9 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
       enddo
       call mpp_clock_end(physClock)
 
+!--- for atmos-ocean coupling: put fluxes from IPD to Atmos data structure (by Kun Gao)
+      call apply_fluxes_from_IPD_to_Atmos (Atmos)
+
       if (chksum_debug) then
         if (mpp_pe() == mpp_root_pe()) print *,'PHYSICS STEP1   ', IPD_Control%kdt, IPD_Control%fhour
         call FV3GFS_IPD_checksum(IPD_Control, IPD_Data, Atm_block)
@@ -497,6 +501,7 @@ subroutine update_atmos_model_radiation (Surface_boundary, Atmos) ! name change 
       endif
       call getiauforcing(IPD_Control,IAU_data)
       if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "end of radiation and physics step"
+
     endif
 
     call mpp_clock_end(shieldClock)
@@ -946,6 +951,71 @@ subroutine apply_sfc_data_to_IPD (Surface_boundary)
 
 end subroutine apply_sfc_data_to_IPD
 
+subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
+
+  type (atmos_data_type), intent(inout) :: Atmos
+  integer :: nb, blen, ix, i, j
+
+  real :: nirbmdi, visbmdi, nirbmui, visbmui
+  real :: nirdfdi, visdfdi, nirdfui, visdfui
+
+  do nb = 1,Atm_block%nblks
+     blen = Atm_block%blksz(nb)
+     do ix = 1, blen
+        i = Atm_block%index(nb)%ii(ix) - Atm_block%isc + 1
+        j = Atm_block%index(nb)%jj(ix) - Atm_block%jsc + 1
+
+        ! --- shortwave
+
+        ! eight sw components: dir/dif; nir/vis; down/up
+        nirbmdi = IPD_Data(nb)%Coupling%nirbmdi(ix)
+        nirdfdi = IPD_Data(nb)%Coupling%nirdfdi(ix)
+        visbmdi = IPD_Data(nb)%Coupling%visbmdi(ix)
+        visdfdi = IPD_Data(nb)%Coupling%visdfdi(ix)
+        nirbmui = IPD_Data(nb)%Coupling%nirbmui(ix)
+        nirdfui = IPD_Data(nb)%Coupling%nirdfui(ix)
+        visbmui = IPD_Data(nb)%Coupling%visbmui(ix)
+        visdfui = IPD_Data(nb)%Coupling%visdfui(ix)
+
+        ! cosine of zenith angle
+        Atmos%coszen(i,j) = IPD_Data(nb)%Radtend%coszen(ix)
+
+        ! total net
+        Atmos%flux_sw_dir(i,j) = nirbmdi + visbmdi - (nirbmui + visbmui)  ! net (down-up) sw flux at surface - direct
+        Atmos%flux_sw_dif(i,j) = nirdfdi + visdfdi - (nirdfui + visbmui)  ! net (down-up) sw flux at surface - diffused
+
+        ! total down
+        Atmos%flux_sw_down_total_dir(i,j) = nirbmdi + visbmdi             ! downward total sw flux at surface - direct
+        Atmos%flux_sw_down_total_dif(i,j) = nirdfdi + visdfdi             ! downward total sw flux at surface - diffused
+
+        ! visible net
+        Atmos%flux_sw_vis_dir(i,j) = visbmdi - visbmui                    ! net (down-up) visible sw flux at surface - direct
+        Atmos%flux_sw_vis_dif(i,j) = visdfdi - visdfui                    ! net (down-up) visible sw flux at surface - diffused
+
+        ! visible down
+        Atmos%flux_sw_down_vis_dir(i,j) = visbmdi                         ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_down_vis_dif(i,j) = visdfdi                         ! downward visible sw flux at surface - diffused
+
+        ! total net and visible net; not used on exchange grid (not important)
+        Atmos%flux_sw(i,j)     = Atmos%flux_sw_dir(i,j) + Atmos%flux_sw_dif(i,j) 
+        Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dir(i,j)
+
+        ! --- longwave 
+        ! total downward lw flux at sfc (w/m**2)
+        Atmos%flux_lw(i,j) = IPD_Data(nb)%Radtend%sfcflw(ix)%dnfxc
+
+        ! --- precip rate (kg/m**2/s)
+        if ( IPD_Data(nb)%Sfcprop%srflag(ix) .lt. 0.5) then  ! rain (srflag = 0.)
+          Atmos%lprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix)
+          Atmos%fprec(i,j) = 0.
+        else                                                 ! snow (srflag = 1.)
+          Atmos%lprec(i,j) = 0.
+          Atmos%fprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix)
+        endif
+     enddo
+  enddo
+
+end subroutine apply_fluxes_from_IPD_to_Atmos
 
 ! </SUBROUTINE>
 

@@ -980,35 +980,35 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
         ! cosine of zenith angle
         Atmos%coszen(i,j) = IPD_Data(nb)%Radtend%coszen(ix)
 
-        ! total net
-        Atmos%flux_sw_dir(i,j) = nirbmdi + visbmdi - (nirbmui + visbmui)  ! net (down-up) sw flux at surface - direct
-        Atmos%flux_sw_dif(i,j) = nirdfdi + visdfdi - (nirdfui + visbmui)  ! net (down-up) sw flux at surface - diffused
-
-        ! total down
-        Atmos%flux_sw_down_total_dir(i,j) = nirbmdi + visbmdi             ! downward total sw flux at surface - direct
-        Atmos%flux_sw_down_total_dif(i,j) = nirdfdi + visdfdi             ! downward total sw flux at surface - diffused
+        ! visible down
+        Atmos%flux_sw_down_vis_dir(i,j) = visbmdi                         ! downward visible sw flux at surface - direct
+        Atmos%flux_sw_down_vis_dif(i,j) = visdfdi                         ! downward visible sw flux at surface - diffused
 
         ! visible net
         Atmos%flux_sw_vis_dir(i,j) = visbmdi - visbmui                    ! net (down-up) visible sw flux at surface - direct
         Atmos%flux_sw_vis_dif(i,j) = visdfdi - visdfui                    ! net (down-up) visible sw flux at surface - diffused
 
-        ! visible down
-        Atmos%flux_sw_down_vis_dir(i,j) = visbmdi                         ! downward visible sw flux at surface - direct
-        Atmos%flux_sw_down_vis_dif(i,j) = visdfdi                         ! downward visible sw flux at surface - diffused
+        ! total down
+        Atmos%flux_sw_down_total_dir(i,j) = nirbmdi + visbmdi             ! downward total sw flux at surface - direct
+        Atmos%flux_sw_down_total_dif(i,j) = nirdfdi + visdfdi             ! downward total sw flux at surface - diffused
+
+        ! total net
+        Atmos%flux_sw_dir(i,j) = (nirbmdi + visbmdi) - (nirbmui + visbmui)! net (down-up) sw flux at surface - direct
+        Atmos%flux_sw_dif(i,j) = (nirdfdi + visdfdi) - (nirdfui + visbmui)! net (down-up) sw flux at surface - diffused
 
         ! total net and visible net; not used on exchange grid (not important)
         Atmos%flux_sw(i,j)     = Atmos%flux_sw_dir(i,j) + Atmos%flux_sw_dif(i,j) 
         Atmos%flux_sw_vis(i,j) = Atmos%flux_sw_vis_dir(i,j) + Atmos%flux_sw_vis_dir(i,j)
 
-        ! --- longwave 
-        ! total downward lw flux at sfc (w/m**2)
+        ! --- longwave
+        ! total downward lw flux at sfc 
         Atmos%flux_lw(i,j) = IPD_Data(nb)%Radtend%sfcflw(ix)%dnfxc
 
         ! --- precip rate (kg/m**2/s)
-        if ( IPD_Data(nb)%Sfcprop%srflag(ix) .lt. 0.5) then  ! rain (srflag = 0.)
+        if ( IPD_Data(nb)%Sfcprop%srflag(ix) .lt. 0.5) then  ! rain (srflag = 0)
           Atmos%lprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix)
           Atmos%fprec(i,j) = 0.
-        else                                                 ! snow (srflag = 1.)
+        else                                                 ! snow (srflag = 1)
           Atmos%lprec(i,j) = 0.
           Atmos%fprec(i,j) = 1./IPD_Control%dtp * IPD_Data(nb)%Sfcprop%tprcp(ix)
         endif

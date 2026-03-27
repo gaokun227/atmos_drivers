@@ -75,6 +75,7 @@ use atmosphere_mod,     only: atmosphere_coarse_graining_parameters
 use atmosphere_mod,     only: atmosphere_coarse_diag_axes
 use atmosphere_mod,     only: atmosphere_coarsening_strategy
 use atmosphere_mod,     only: Atm, mygrid
+use atmosphere_mod,     only: populate_surf_diff, surf_diff_type
 use block_control_mod,  only: block_control_type, define_blocks_packed
 use IPD_typedefs,       only: IPD_init_type, IPD_control_type, &
                               IPD_data_type, IPD_diag_type,    &
@@ -123,29 +124,6 @@ public update_atmos_model_up, update_atmos_model_down, lnd_ice_atm_bnd_type_chks
 public atmos_data_type_chksum, lnd_atm_bnd_type_chksum, ice_atm_bnd_type_chksum
 public atm_stock_pe
 !-----------------------------------------------------------------------
-
-!<PUBLICTYPE >
-! FROM AM4/src/atmos_phys/atmos_param/vert_diff/vert_diff.F90
-! Surface diffusion derived type data
-type surf_diff_type
-
-  real, pointer, dimension(:,:) :: dtmass  => NULL(),   & !dt / mass (mass of lower atmospheric layer)
-                                   dflux_t => NULL(),   & ! temperature flux derivative at the top of the lowest atmospheric
-                                                          ! layer with respect to the temperature of that layer  (J/(m2 K))
-                                   delta_t => NULL(),   & ! the increment in temperature in the lowest atmospheric layer
-                                   delta_u => NULL(),   & ! same for u
-                                   delta_v => NULL()      ! same for v
-  real, pointer, dimension(:,:,:) :: tdt_dyn => NULL(), & ! no explanation found in the vert_diff.F90
-                                     qdt_dyn => NULL(), &! no explanation found in the vert_diff.F90
-                                     dgz_dyn => NULL(), &! no explanation found in the vert_diff.F90
-                                     ddp_dyn => NULL(), &! no explanation found in the vert_diff.F90
-
-                                     tdt_rad => NULL()   !miz
-
-  real, pointer, dimension(:,:,:) :: dflux_tr => NULL(),& ! tracer flux tendency
-                                     delta_tr => NULL()   ! tracer tendency
-end type surf_diff_type
-!<PUBLICTYPE >
 
 !<PUBLICTYPE >
  type atmos_data_type
@@ -372,7 +350,7 @@ subroutine update_atmos_model_down( Surface_boundary, Atmos )
 !
 !-----------------------------------------------------------------------
 
-type(land_ice_atmos_boundary_type), intent(in) :: Surface_boundary
+type(land_ice_atmos_boundary_type), intent(inout) :: Surface_boundary
 type (atmos_data_type), intent(inout) :: Atmos
 integer :: nb
 
@@ -418,6 +396,13 @@ if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "call apply_fluxes_from_IP
 call apply_fluxes_from_IPD_to_Atmos (Atmos)
 !--------------------------------------------------------------------------------------------
 !--------------------------------------------------------------------------------------------
+
+! after the downward sweep, populate these quantities in atmos%surf_diff
+! used in flux_down_from_atmos for implicit coupling ! Joseph
+!--------------------------------------------------------------------------------------------
+if (mpp_pe() == mpp_root_pe() .and. debug) write(6,*) "Populate surf_diff for implicit coupling"
+call populate_surf_diff ( Atmos%surf_diff, IPD_Data, IAU_Data, Atm_block)
+!call update_surface_boundary_from_down (Surface_boundary, IPD_Data, IAU_Data, Atm_block)
 
     call mpp_clock_end(shieldClock)
     call mpp_set_current_pelist() !should exit with global pelist to accomodate the full coupler atmos clock
@@ -1306,6 +1291,7 @@ subroutine apply_fluxes_from_IPD_to_Atmos ( Atmos )
 
         ! cosine of zenith angle
         Atmos%coszen(i,j) = IPD_Data(nb)%Coupling%coszena(ix)
+        !Atmos%coszen(i,j) = IPD_Data(nb)%Radtend%coszen(ix) ! use this for land coupling
 
         ! visible only
         Atmos%flux_sw_down_vis_dir(i,j) = visbmd              ! downward visible sw flux at surface - direct

@@ -75,7 +75,7 @@ use atmosphere_mod,     only: atmosphere_coarse_graining_parameters
 use atmosphere_mod,     only: atmosphere_coarse_diag_axes
 use atmosphere_mod,     only: atmosphere_coarsening_strategy
 use atmosphere_mod,     only: Atm, mygrid
-use atmosphere_mod,     only: populate_surf_diff, surf_diff_type
+use atmosphere_mod,     only: populate_surf_diff, land_feedback, surf_diff_type
 use block_control_mod,  only: block_control_type, define_blocks_packed
 use IPD_typedefs,       only: IPD_init_type, IPD_control_type, &
                               IPD_data_type, IPD_diag_type,    &
@@ -458,9 +458,10 @@ subroutine update_atmos_model_up( Surface_boundary, Atmos )
       call set_atmosphere_pelist() ! should be called before local clocks since they are defined on local atm(n)%pelist
       call mpp_clock_begin(shieldClock)
 
-    !Atmos%Surf_diff%delta_t  = Surface_boundary%dt_t
-    !Atmos%Surf_diff%delta_tr = Surface_boundary%dt_tr
+    Atmos%Surf_diff%delta_t  = Surface_boundary%dt_t
+    Atmos%Surf_diff%delta_tr = Surface_boundary%dt_tr
 
+    call land_feedback ( Atmos%surf_diff, IPD_Data, IAU_Data, Atm_block)
 !--- execute the IPD atmospheric physics step1 subcomponent (main physics driver)
       call mpp_clock_begin(physClock)
 !$OMP parallel do default (none) &

@@ -829,7 +829,7 @@ subroutine atmos_model_init (Atmos, Time_init, Time, Time_step, do_concurrent_ra
 !--- before going any further check definitions for 'blocks'
 !-----------------------------------------------------------------------
    call atmosphere_control_data (isc, iec, jsc, jec, nlev, p_hydro, hydro, tile_num, &
-                                 do_inline_mp, do_inline_pbl, do_inline_cnv, do_inline_gwd, do_cosp)
+                                 do_inline_mp, do_inline_cnv, do_inline_pbl, do_inline_gwd, do_cosp)
    call define_blocks_packed ('atmos_model', Atm_block, isc, iec, jsc, jec, nlev, &
                               blocksize, block_message)
 
